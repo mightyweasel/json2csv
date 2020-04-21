@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
+    <title>JSON2CSV</title>
+  </head>
+  <body>
+  <div class="container-fluid">
+      <h1>Self-Serve JSON to CSV/TSV</h1>
+      <form>
+        <div class="form-group">
+          <label for="in_json">1. Paste JSON Here</label>
+          <textarea class="form-control" id="in_json" rows="3">
+          [{
+            "firstname": "Bob",
+            "lastname": "Bobb",
+            "office": "A Block Somewhere",
+            "items": [
+              {"id": 1, "name": "bob"},
+              {"id": 2, "name": "abob"},
+              {"id": 3, "name": "cbob"}
+            ] 
+          },
+          {
+            "firstname": "Rob",
+            "lastname": "Robb",
+            "office": "B Block Somewhere",
+            "items": [
+              {"id": 1, "name": "jbob"},
+              {"id": 2, "name": "kbob"},
+              {"id": 3, "name": "lbob"}
+            ] 
+          }]
+          </textarea>
+        </div>
+        <div>
+          <button id="process_input" type="button" class="btn btn-success">2. Convert It!</button>
+        </div>
+        <div class="form-group">
+          <label for="out_csv">3. Copy TSV From Here (Paste directly into Excel)</label>
+          <textarea class="form-control" id="out_tsv" rows="10"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="out_csv">4. Copy CSV From Here (Paste into .csv file, then import)</label>
+          <textarea class="form-control" id="out_csv" rows="3"></textarea>
+        </div>
+      </form>
+  </div>
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+    <script>
+      
+      let flatten = function(data) {
+          var result = {};
+          function recurse (cur, prop) {
+              if (Object(cur) !== cur) {
+                  result[prop] = cur;
+              } else if (Array.isArray(cur)) {
+                   for(var i=0, l=cur.length; i<l; i++)
+                       recurse(cur[i], prop + "[" + i + "]");
+                  if (l == 0)
+                      result[prop] = [];
+              } else {
+                  var isEmpty = true;
+                  for (var p in cur) {
+                      isEmpty = false;
+                      recurse(cur[p], prop ? prop+"."+p : p);
+                  }
+                  if (isEmpty && prop)
+                      result[prop] = {};
+              }
+          }
+          recurse(data, "");
+          return result;
+      };
+
+      
+      let test_props = function() {
+        let in_json = $("#in_json").val();
+        let out_csv = "";
+        
+
+        try {
+          in_json = JSON.parse(in_json);
+        } catch(e) {
+          alert("JSON Parse Error. Please check input.");
+          return;
+        }
+
+        let flat = flatten(in_json);
+
+        let headers = [];
+
+        for(sig in flat) {
+          let gensig = sig.replace(/[0-9]/g, "");
+          if(!headers.includes(gensig)) {
+            headers.push(gensig);
+          }
+        }
+
+        let col_headers = headers.join("\t")
+        let all_signatures = flat;
+
+        let cols = headers
+        let cells = all_signatures;//.split("\n");
+
+        let csv_buffer = col_headers + "\n";
+
+        let template = col_headers;
+        let padded_rows = "";
+        let current_record_id = -1;
+
+        let records = ""
+        for(let row in flat) {
+          let val = flat[row];
+          let rec_id = row.split(".")[0].replace("[","").replace("]","");
+          if(current_record_id != rec_id) {
+            current_record_id = rec_id;
+            records += "\n";
+          }
+          records += row + "=" + val + "\t";
+        }
+
+        records = records.split("\n");
+
+        for(let row = 0 ; row < records.length ; row++) {
+          if(records[row] == "") {continue;}
+          
+          let hdr_templs = [];
+          template = col_headers;
+
+          let cols = template.split("\t");
+          let cells = records[row].split("\t");
+          
+          let sub_index = 0;
+          let rec_tmpls = [];
+          rec_tmpls.push(template);
+          for(let cell = 0 ; cell < cells.length ; cell++) {
+            template = rec_tmpls.pop();
+            let fullsig = cells[cell];
+            let val = fullsig.split("=")[1] ? fullsig.split("=")[1] : "";
+            let sig = fullsig.split("=")[0];
+
+            //console.log(sig);
+
+            let depth = sig.split("]").length - 1; // counting arrays as depth, .s are considered accessible
+            if(depth == 1) {
+              let gensig = sig.replace(/[0-9]/g, ""); // add g for light depth extract 1 layer deep
+
+              template = template.replace(gensig,val);
+            }
+
+            if(depth >= 2) {
+              let gensig = sig.replace(/[0-9]/g, ""); // add g for light depth extract 1 layer deep
+
+              if(hdr_templs.length == 0) {
+                let subtemplate = template
+                subtemplate = subtemplate.replace(gensig,val);
+
+                hdr_templs.push(subtemplate);
+              } else {
+                let subtemplate = hdr_templs.pop();
+                if(subtemplate.indexOf(gensig) === -1) {
+                  // couldnt replace, need new header
+                  hdr_templs.push(subtemplate);
+                  hdr_templs.push(template);
+                  subtemplate = hdr_templs.pop();
+                }
+                subtemplate = subtemplate.replace(gensig,val);
+
+                hdr_templs.push(subtemplate);
+              }
+            } 
+            rec_tmpls.push(template);
+            
+          }
+
+          if(hdr_templs.length > 0) {
+            padded_rows +=  hdr_templs.join("\n") + "\n";
+          } else {
+            padded_rows +=  rec_tmpls.join("\n") + "\n";
+          }  
+        }
+
+        $("#out_tsv").val( col_headers + "\n" + padded_rows );
+        $("#out_csv").val( col_headers.replace(/\t/g,",") + "\n" + padded_rows.replace(/\t/g,",") );
+
+      };
+
+      let initialize_converter = function( jQuery ) {
+        // Code to run when the document is ready.
+        $("#process_input").on("click", test_props);
+        //alert("Ready!");
+      };
+ 
+      $( document ).ready( initialize_converter );
+
+    </script>
+  </body>
+</html>
